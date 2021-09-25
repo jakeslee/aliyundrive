@@ -1,6 +1,6 @@
 package models
 
-import "github.com/jakeslee/aliyundrive/v1/http"
+import "github.com/jakeslee/aliyundrive/http"
 
 type UserInfo struct {
 	http.BaseResponse

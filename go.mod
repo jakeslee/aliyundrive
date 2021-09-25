@@ -1,4 +1,4 @@
-module github.com/jakeslee/aliyundrive/v1
+module github.com/jakeslee/aliyundrive
 
 go 1.17
 

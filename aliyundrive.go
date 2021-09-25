@@ -3,8 +3,8 @@ package aliyundrive
 import (
 	"crypto/tls"
 	"github.com/bwmarrin/snowflake"
-	"github.com/jakeslee/aliyundrive/v1/http"
-	"github.com/jakeslee/aliyundrive/v1/models"
+	"github.com/jakeslee/aliyundrive/http"
+	"github.com/jakeslee/aliyundrive/models"
 	http2 "net/http"
 )
 

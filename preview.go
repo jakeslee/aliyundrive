@@ -1,6 +1,6 @@
 package aliyundrive
 
-import "github.com/jakeslee/aliyundrive/v1/models"
+import "github.com/jakeslee/aliyundrive/models"
 
 // GetVideoPreviewUrl 获取视频预览 URL
 func (d *AliyunDrive) GetVideoPreviewUrl(credential *Credential, fileId string) (*models.VideoPreviewUrlResponse, error) {

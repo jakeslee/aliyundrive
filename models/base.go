@@ -1,7 +1,7 @@
 package models
 
 import (
-	"github.com/jakeslee/aliyundrive/v1/http"
+	"github.com/jakeslee/aliyundrive/http"
 	"time"
 )
 

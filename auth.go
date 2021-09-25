@@ -3,7 +3,7 @@ package aliyundrive
 import (
 	"errors"
 	"github.com/asaskevich/EventBus"
-	"github.com/jakeslee/aliyundrive/v1/models"
+	"github.com/jakeslee/aliyundrive/models"
 	"github.com/jinzhu/copier"
 	"github.com/sirupsen/logrus"
 )

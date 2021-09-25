@@ -2,7 +2,7 @@ package models
 
 import (
 	"errors"
-	"github.com/jakeslee/aliyundrive/v1/http"
+	"github.com/jakeslee/aliyundrive/http"
 	http2 "net/http"
 	"time"
 )
