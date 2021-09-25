@@ -1,15 +1,18 @@
 package aliyundrive
 
 import (
+	"crypto/tls"
 	"github.com/bwmarrin/snowflake"
 	"github.com/jakeslee/aliyundrive/v1/http"
 	"github.com/jakeslee/aliyundrive/v1/models"
+	http2 "net/http"
 )
 
 type AliyunDrive struct {
 	Credentials map[string]*Credential
 
 	client    *http.Client
+	rawClient *http2.Client
 	snowflake *snowflake.Node
 }
 
@@ -25,6 +28,13 @@ func NewClient(options *Options) *AliyunDrive {
 		client:      http.NewClient(),
 		Credentials: make(map[string]*Credential),
 		snowflake:   node,
+		rawClient: &http2.Client{
+			Transport: &http2.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
 	}
 
 	if len(options.Credential) > 0 {

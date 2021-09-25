@@ -16,4 +16,4 @@
 - [Xhofe/alist](https://github.com/Xhofe/alist)
 - [zxbu/webdav-aliyundriver](https://github.com/zxbu/webdav-aliyundriver)
 - https://www.aliyundrive.com
-- [阿里网盘开发者文档](https://help.aliyun.com/document_detail/175888.html)
+- [阿里网盘开发者文档](https://help.aliyun.com/document_detail/213019.html)

@@ -2,7 +2,6 @@ package aliyundrive
 
 import (
 	"bytes"
-	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"math/big"
 	http2 "net/http"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -60,6 +60,8 @@ func (d *AliyunDrive) GetFile(credential *Credential, fileId string) (*models.Fi
 }
 
 // GetDownloadURL 获取下载路经
+// https://www.aliyundrive.com 获取的 RefreshToken 得到的 URL 需要带 Referrer 下载
+// 移动端 Web 或手机端获取的 RefreshToken 得到的 URL可以直链下载
 func (d *AliyunDrive) GetDownloadURL(credential *Credential, fileId string) (*models.DownloadURLResponse, error) {
 	request := models.NewDownloadURLRequest()
 
@@ -71,6 +73,51 @@ func (d *AliyunDrive) GetDownloadURL(credential *Credential, fileId string) (*mo
 	err := d.send(credential, request, &resp)
 
 	return &resp, err
+}
+
+// Download 下载文件
+func (d *AliyunDrive) Download(credential *Credential, fileId, requestRange string) (*http2.Response, error) {
+	urlResponse, err := d.GetDownloadURL(credential, fileId)
+
+	if err != nil {
+		return nil, err
+	}
+
+	logrus.Infof("download file %s, url: %s", fileId, *urlResponse.Url)
+
+	request, err := http2.NewRequest(http2.MethodGet, *urlResponse.Url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	request.Header.Set("referer", "https://www.aliyundrive.com/")
+
+	size := urlResponse.Size
+
+	if requestRange != "" {
+		splitRange := strings.Split(requestRange, "-")
+
+		if len(splitRange) == 2 {
+			if end, err := strconv.ParseInt(splitRange[1], 10, 64); err != nil && end >= size {
+				leftLen := len(splitRange[0])
+
+				requestRange = requestRange[:leftLen+1]
+			}
+		}
+
+		request.Header.Set("range", requestRange)
+		logrus.Infof("request %s range: %s", fileId, requestRange)
+	}
+
+	res, err := d.rawClient.Do(request)
+
+	logrus.Infof("request %s finished", fileId)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
 }
 
 // Search 查找文件
@@ -227,15 +274,7 @@ func (d *AliyunDrive) PartUpload(credential *Credential, uploadUrl string, conte
 
 	request.Header.Set("Expect", "100-continue")
 
-	c := &http2.Client{
-		Transport: &http2.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		},
-	}
-
-	response, err := c.Do(request)
+	response, err := d.rawClient.Do(request)
 	if err != nil {
 		return err
 	}

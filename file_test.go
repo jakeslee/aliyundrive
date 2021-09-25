@@ -1,6 +1,8 @@
 package aliyundrive
 
 import (
+	"io"
+	"net/http"
 	"os"
 	"testing"
 )
@@ -30,7 +32,7 @@ func TestGetDownloadURL(t *testing.T) {
 
 	cred, _ = drive.AddCredential(cred)
 
-	url, err := drive.GetDownloadURL(cred, "61448987147d665483664d9fb126ffd7e8ac4661")
+	url, err := drive.GetDownloadURL(cred, "614ea15e32865fc2e8af4a4fb70b13d1103c70c0")
 	if err != nil {
 		t.Errorf("get download url error %v", err)
 	}
@@ -104,4 +106,36 @@ func TestAliyunDrive_UploadFile(t *testing.T) {
 	}
 
 	t.Logf("file %+v", file)
+}
+
+func TestAliyunDrive_Download(t *testing.T) {
+	drive, cred, err := GetClientAndCred()
+
+	if err != nil {
+		t.Fatalf("cred %v", err)
+	}
+
+	http.HandleFunc("/download", func(writer http.ResponseWriter, request *http.Request) {
+		t.Logf("request method %s", request.Method)
+
+		response, err := drive.Download(cred, "614ea15e32865fc2e8af4a4fb70b13d1103c70c0", request.Header.Get("range"))
+		if err != nil {
+			writer.Write([]byte(err.Error()))
+			return
+		}
+
+		for key, values := range response.Header {
+			for _, value := range values {
+				writer.Header().Add(key, value)
+			}
+		}
+
+		_, err = io.Copy(writer, response.Body)
+		if err != nil {
+			writer.Write([]byte(err.Error()))
+			return
+		}
+	})
+
+	t.Fatal(http.ListenAndServe(":18080", nil))
 }
