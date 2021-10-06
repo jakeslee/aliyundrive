@@ -2,18 +2,30 @@ package aliyundrive
 
 import (
 	"crypto/tls"
-	"github.com/bwmarrin/snowflake"
+	nested "github.com/antonfisher/nested-logrus-formatter"
 	"github.com/jakeslee/aliyundrive/http"
 	"github.com/jakeslee/aliyundrive/models"
-	http2 "net/http"
+	"github.com/sirupsen/logrus"
+	gohttp "net/http"
+	"time"
 )
+
+const (
+	DefaultRootFileId = "root"
+)
+
+func init() {
+	logrus.SetFormatter(&nested.Formatter{
+		HideKeys: true,
+	})
+}
 
 type AliyunDrive struct {
 	Credentials map[string]*Credential
 
 	client    *http.Client
-	rawClient *http2.Client
-	snowflake *snowflake.Node
+	rawClient *gohttp.Client
+	cache     *bigCache
 }
 
 type Options struct {
@@ -22,20 +34,23 @@ type Options struct {
 }
 
 func NewClient(options *Options) *AliyunDrive {
-	node, _ := snowflake.NewNode(1)
-
 	drive := &AliyunDrive{
-		client:      http.NewClient(),
 		Credentials: make(map[string]*Credential),
-		snowflake:   node,
-		rawClient: &http2.Client{
-			Transport: &http2.Transport{
+		client:      http.NewClient(),
+		rawClient: &gohttp.Client{
+			Transport: &gohttp.Transport{
 				TLSClientConfig: &tls.Config{
 					InsecureSkipVerify: true,
 				},
 			},
 		},
 	}
+
+	drive.cache, _ = newBigCache(&bigCacheOptions{
+		ttl:       5 * time.Minute,
+		size:      2000,
+		cleanFreq: time.Minute,
+	})
 
 	if len(options.Credential) > 0 {
 		for _, credential := range options.Credential {
@@ -70,4 +85,9 @@ func (d *AliyunDrive) send(credential *Credential, r http.Request, response http
 	}
 
 	return err
+}
+
+// EvictCacheWithPrefix 失效 Key 前缀为 keyPrefix 的缓存
+func (d *AliyunDrive) EvictCacheWithPrefix(keyPrefix string) int {
+	return d.cache.RemoveWithPrefix(keyPrefix)
 }

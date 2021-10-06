@@ -58,3 +58,19 @@ func ChecksumFileSha1(file *os.File) (string, error) {
 		}
 	}
 }
+
+func PrefixSlash(path string) string {
+	if path[0] != '/' {
+		return "/" + path
+	}
+
+	return path
+}
+
+func RemovePrefixSlash(path string) string {
+	if path[0] == '/' {
+		return path[1:]
+	}
+
+	return path
+}

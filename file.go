@@ -1,7 +1,6 @@
 package aliyundrive
 
 import (
-	"bytes"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -12,13 +11,16 @@ import (
 	"math/big"
 	http2 "net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
 	// ThunkSizeDefault 默认 10MB 大小
 	ThunkSizeDefault = 1024 * 1024 * 10
+	timeLayout       = "2006-01-02T15:04:05.000Z"
 )
 
 type FolderFilesOptions struct {
@@ -30,6 +32,14 @@ type FolderFilesOptions struct {
 
 // GetFolderFiles 获取指定目录下的文件列表
 func (d *AliyunDrive) GetFolderFiles(credential *Credential, options *FolderFilesOptions) (*models.FolderFilesResponse, error) {
+	cacheKey := fmt.Sprintf("%s:%s", options.FolderFileId, options.Marker)
+
+	var resp models.FolderFilesResponse
+
+	if cached, err := d.cache.Get(cacheKey); err == nil {
+		return cached.(*models.FolderFilesResponse), nil
+	}
+
 	request := models.NewFolderFilesRequest()
 
 	request.DriveId = credential.DefaultDriveId
@@ -38,15 +48,114 @@ func (d *AliyunDrive) GetFolderFiles(credential *Credential, options *FolderFile
 	request.OrderDirection = options.OrderDirection
 	request.Marker = options.Marker
 
-	var resp models.FolderFilesResponse
-
 	err := d.send(credential, request, &resp)
+
+	if err == nil {
+		_ = d.cache.Set(cacheKey, &resp)
+		//d.cacheMap.Store(cacheKey, &resp)
+
+		go d.cacheFiles(resp.Items)
+	}
 
 	return &resp, err
 }
 
+// GetByPath 通过 Path 取得文件信息，不存在则错误
+func (d *AliyunDrive) GetByPath(credential *Credential, fullPath string) (*models.FileResponse, error) {
+	fullPath = PrefixSlash(filepath.Clean(fullPath))
+
+	request := models.NewGetFileByPathRequest()
+	request.DriveId = credential.DefaultDriveId
+	request.FilePath = fullPath
+
+	var resp models.FileResponse
+
+	err := d.send(credential, request, &resp)
+
+	if err == nil {
+		_ = d.cache.Set(resp.FileId, &resp)
+	}
+
+	return &resp, err
+}
+
+var ErrPartialFoundPath = errors.New("partial found: only found partial parent")
+
+// ResolvePathToFileId 通过路径查找 fileId
+// 当查询出现错误时，返回 "","", err
+// 当查找到路径前一部分时，返回 fileId, prefix, ErrPartialFoundPath
+// 当全部找到时，返回 fileId, fullpath, nil
+func (d *AliyunDrive) ResolvePathToFileId(credential *Credential, fullpath string) (string, string, error) {
+	path := PrefixSlash(filepath.Clean(fullpath))
+
+	foundPath := "/"
+
+	if path == "/" {
+		go func() {
+			_, _ = d.GetFile(credential, DefaultRootFileId)
+		}()
+		return DefaultRootFileId, foundPath, nil
+	}
+
+	splitFolders := strings.Split(path, "/")
+
+	fileId := DefaultRootFileId
+
+	for i := 0; i < len(splitFolders)-1; i++ {
+		matched := false
+		marker := ""
+
+		for !matched {
+			folderFiles, err := d.GetFolderFiles(credential, &FolderFilesOptions{
+				OrderBy:        "updated_at",
+				OrderDirection: models.OrderDirectionTypeDescend,
+				FolderFileId:   fileId,
+				Marker:         marker,
+			})
+
+			if err != nil {
+				return "", "", err
+			}
+
+			for _, item := range folderFiles.Items {
+				if item.Name == splitFolders[i+1] {
+					fileId = item.FileId
+					foundPath = filepath.Join(foundPath, item.Name)
+					matched = true
+					break
+				}
+			}
+
+			if matched {
+				break
+			}
+
+			if folderFiles.NextMarker == "" {
+				return fileId, foundPath, ErrPartialFoundPath
+			}
+
+			marker = folderFiles.NextMarker
+		}
+	}
+
+	return fileId, foundPath, nil
+}
+
+// cacheFiles 缓存 FileId 对应的 File 信息
+func (d *AliyunDrive) cacheFiles(files []*models.File) {
+	for _, file := range files {
+		_ = d.cache.Set(file.FileId, &models.FileResponse{
+			File: file,
+		})
+	}
+}
+
 // GetFile 获取文件信息
 func (d *AliyunDrive) GetFile(credential *Credential, fileId string) (*models.FileResponse, error) {
+	if v, err := d.cache.Get(fileId); err == nil {
+		return v.(*models.FileResponse), nil
+	}
+
 	request := models.NewFileRequest()
 
 	request.DriveId = credential.DefaultDriveId
@@ -56,6 +165,10 @@ func (d *AliyunDrive) GetFile(credential *Credential, fileId string) (*models.Fi
 
 	err := d.send(credential, request, &resp)
 
+	if err == nil {
+		_ = d.cache.Set(fileId, &resp)
+	}
+
 	return &resp, err
 }
 
@@ -63,14 +176,32 @@ func (d *AliyunDrive) GetFile(credential *Credential, fileId string) (*models.Fi
 // https://www.aliyundrive.com 获取的 RefreshToken 得到的 URL 需要带 Referrer 下载
 // 移动端 Web 或手机端获取的 RefreshToken 得到的 URL可以直链下载
 func (d *AliyunDrive) GetDownloadURL(credential *Credential, fileId string) (*models.DownloadURLResponse, error) {
+	var resp models.DownloadURLResponse
+
+	key := fileId + ":url"
+
+	if cached, err := d.cache.Get(key); err == nil {
+		response := cached.(*models.DownloadURLResponse)
+
+		urlExp, err := time.Parse(timeLayout, response.Expiration)
+
+		if err == nil {
+			if time.Now().Sub(urlExp) > time.Hour {
+				return response, nil
+			}
+		}
+	}
+
 	request := models.NewDownloadURLRequest()
 
 	request.DriveId = credential.DefaultDriveId
 	request.FileId = fileId
 
-	var resp models.DownloadURLResponse
-
 	err := d.send(credential, request, &resp)
+
+	if err == nil {
+		_ = d.cache.Set(key, &resp)
+	}
 
 	return &resp, err
 }
@@ -83,7 +214,7 @@ func (d *AliyunDrive) Download(credential *Credential, fileId, requestRange stri
 		return nil, err
 	}
 
-	logrus.Infof("download file %s, url: %s", fileId, *urlResponse.Url)
+	logrus.Debugf("download file %s, url: %s", fileId, *urlResponse.Url)
 
 	request, err := http2.NewRequest(http2.MethodGet, *urlResponse.Url, nil)
 	if err != nil {
@@ -106,12 +237,11 @@ func (d *AliyunDrive) Download(credential *Credential, fileId, requestRange stri
 		}
 
 		request.Header.Set("range", requestRange)
-		logrus.Infof("request %s range: %s", fileId, requestRange)
 	}
 
 	res, err := d.rawClient.Do(request)
 
-	logrus.Infof("request %s finished", fileId)
+	logrus.Debugf("request %s finished", fileId)
 
 	if err != nil {
 		return nil, err
@@ -190,12 +320,13 @@ func (d *AliyunDrive) ComputePreHash(content io.Reader) (string, error) {
 }
 
 type CreateWithFoldersOptions struct {
-	Name         string
-	ParentFileId string // 父路径
-	Size         int64
-	PreHash      string
-	ContentHash  string
-	ProofCode    string
+	Name          string
+	ParentFileId  string // 父路径
+	Size          int64
+	CheckNameMode models.CheckNameMode
+	PreHash       string
+	ContentHash   string
+	ProofCode     string
 }
 
 // CreateWithFolders 在目录下创建文件，如果非秒传，接下来需要分片上传
@@ -224,6 +355,10 @@ func (d *AliyunDrive) CreateWithFolders(credential *Credential, options *CreateW
 		request = &proofRequest.CreateWithFolders
 		r = proofRequest
 		resp = &models.CreateWithFoldersWithProofResponse{}
+	}
+
+	if options.CheckNameMode != "" {
+		request.CheckNameMode = options.CheckNameMode
 	}
 
 	request.Name = options.Name
@@ -261,9 +396,9 @@ func (d *AliyunDrive) CompleteUpload(credential *Credential, fileId, uploadId st
 
 // PartUpload 分片数据上传
 // 因服务端使用流式计算 SHA1 值，单个文件的分片需要串行上传，不支持多个分片平行上传
-func (d *AliyunDrive) PartUpload(credential *Credential, uploadUrl string, content []byte, callback ProgressCallback) error {
+func (d *AliyunDrive) PartUpload(credential *Credential, uploadUrl string, reader io.Reader, callback ProgressCallback) error {
 	p := &progressReader{
-		bytes.NewReader(content),
+		reader,
 		callback,
 	}
 
@@ -327,11 +462,11 @@ func (d *AliyunDrive) UploadFileRapid(credential *Credential, options *UploadFil
 	if !preHashMatch {
 		if preHashResp, ok := response.(*models.CreateWithFoldersPreHashResponse); ok && !preHashResp.RapidUpload {
 			return d.uploadParts(credential, &uploadPartsOptions{
-				fileId:       preHashResp.FileId,
-				uploadId:     preHashResp.UploadId,
-				partInfoList: preHashResp.PartInfoList,
-				reader:       options.File,
-				callback:     options.ProgressCallback,
+				fileId:           preHashResp.FileId,
+				uploadId:         preHashResp.UploadId,
+				partInfoList:     preHashResp.PartInfoList,
+				reader:           options.File,
+				progressCallback: options.ProgressCallback,
 			})
 		}
 	}
@@ -366,16 +501,16 @@ func (d *AliyunDrive) UploadFileRapid(credential *Credential, options *UploadFil
 			return nil, err
 		}
 
-		return &file.File, nil
+		return file.File, nil
 	}
 
 	// 最后如果秒传还是失败，说明预秒传 HASH 碰撞了，直接上传
 	return d.uploadParts(credential, &uploadPartsOptions{
-		fileId:       proofResp.FileId,
-		uploadId:     proofResp.UploadId,
-		partInfoList: proofResp.PartInfoList,
-		reader:       options.File,
-		callback:     options.ProgressCallback,
+		fileId:           proofResp.FileId,
+		uploadId:         proofResp.UploadId,
+		partInfoList:     proofResp.PartInfoList,
+		reader:           options.File,
+		progressCallback: options.ProgressCallback,
 	})
 }
 
@@ -383,8 +518,10 @@ type UploadFileOptions struct {
 	Name             string
 	Size             int64
 	ParentFileId     string
+	ProgressStart    func(info *ProgressInfo)
 	ProgressCallback ProgressCallback
-	reader           io.Reader
+	ProgressDone     func(info *ProgressInfo)
+	Reader           io.Reader
 }
 
 // UploadFile 同步上传文件（非秒传）
@@ -402,21 +539,38 @@ func (d *AliyunDrive) UploadFile(credential *Credential, options *UploadFileOpti
 	// 没有传 PreHash，此处肯定是非秒传
 	preHashResp := response.(*models.CreateWithFoldersPreHashResponse)
 
+	if options.ProgressStart != nil {
+		options.ProgressStart(&ProgressInfo{
+			FileId:       preHashResp.FileId,
+			UploadId:     preHashResp.UploadId,
+			PartInfoList: preHashResp.PartInfoList,
+		})
+	}
+
 	return d.uploadParts(credential, &uploadPartsOptions{
-		fileId:       preHashResp.FileId,
-		uploadId:     preHashResp.UploadId,
-		partInfoList: preHashResp.PartInfoList,
-		reader:       options.reader,
-		callback:     options.ProgressCallback,
+		fileId:           preHashResp.FileId,
+		uploadId:         preHashResp.UploadId,
+		partInfoList:     preHashResp.PartInfoList,
+		reader:           options.Reader,
+		progressCallback: options.ProgressCallback,
+		progressDone: func(info *ProgressInfo) {
+			// 更新目录缓存
+			d.EvictCacheWithPrefix(options.ParentFileId)
+
+			if options.ProgressDone != nil {
+				options.ProgressDone(info)
+			}
+		},
 	})
 }
 
 type uploadPartsOptions struct {
-	reader       io.Reader
-	partInfoList []*models.PartInfo
-	fileId       string
-	uploadId     string
-	callback     ProgressCallback
+	reader           io.Reader
+	partInfoList     []*models.PartInfo
+	fileId           string
+	uploadId         string
+	progressCallback ProgressCallback
+	progressDone     func(info *ProgressInfo)
 }
 
 // uploadParts 上传分片并合并文件
@@ -428,20 +582,19 @@ func (d *AliyunDrive) uploadParts(credential *Credential, options *uploadPartsOp
 		}
 	}
 
-	buffer := make([]byte, ThunkSizeDefault)
+	bufferSize := int64(ThunkSizeDefault)
+
+	if len(options.partInfoList) > 0 {
+		info := options.partInfoList[0]
+		bufferSize = info.PartSize
+	}
 
 	for _, info := range options.partInfoList {
-		read, err := options.reader.Read(buffer)
-		if err != nil {
-			return nil, err
+		if info.PartSize == 0 {
+			continue
 		}
 
-		if read < ThunkSizeDefault {
-			buffer = buffer[:read]
-		}
-
-		err = d.PartUpload(credential, *info.UploadUrl, buffer, options.callback)
-
+		err := d.PartUpload(credential, *info.UploadUrl, io.LimitReader(options.reader, bufferSize), options.progressCallback)
 		if err != nil {
 			return nil, err
 		}
@@ -456,6 +609,14 @@ func (d *AliyunDrive) uploadParts(credential *Credential, options *uploadPartsOp
 		logrus.Errorf("upload file error %v", uploadResp)
 
 		return nil, errors.New(fmt.Sprintf("upload file id: %s, error: %s", uploadResp.FileId, uploadResp.Message))
+	}
+
+	if options.progressDone != nil {
+		options.progressDone(&ProgressInfo{
+			FileId:       options.fileId,
+			UploadId:     options.uploadId,
+			PartInfoList: options.partInfoList,
+		})
 	}
 
 	return &uploadResp.File, nil
@@ -473,6 +634,13 @@ func (d *AliyunDrive) RenameFile(credential *Credential, fileId, name string) (*
 
 	err := d.send(credential, request, &resp)
 
+	if err == nil {
+		file, _ := d.GetFile(credential, fileId)
+
+		d.EvictCacheWithPrefix(fileId)
+		d.EvictCacheWithPrefix(file.ParentFileId)
+	}
+
 	return &resp, err
 }
 
@@ -489,6 +657,14 @@ func (d *AliyunDrive) MoveFile(credential *Credential, fileId, toParentFileId st
 
 	err := d.send(credential, request, &resp)
 
+	if err == nil {
+		file, _ := d.GetFile(credential, fileId)
+
+		d.EvictCacheWithPrefix(fileId)
+		d.EvictCacheWithPrefix(file.ParentFileId)
+		d.EvictCacheWithPrefix(toParentFileId)
+	}
+
 	return &resp, err
 }
 
@@ -503,20 +679,52 @@ func (d *AliyunDrive) RemoveFile(credential *Credential, fileId string) (*http.B
 
 	err := d.send(credential, request, &resp)
 
+	if err == nil {
+		file, _ := d.GetFile(credential, fileId)
+
+		d.EvictCacheWithPrefix(fileId)
+		d.EvictCacheWithPrefix(file.ParentFileId)
+	}
+
 	return &resp, err
+}
+
+// CreateDirectory 创建目录
+func (d *AliyunDrive) CreateDirectory(credential *Credential, parentFileId, name string) (*models.File, error) {
+	request := models.NewCreateWithFoldersPreHashRequest()
+
+	request.DriveId = credential.DefaultDriveId
+	request.CheckNameMode = models.CheckNameModeRefuse
+	request.Type = models.FileTypeFolder
+	request.ParentFileId = parentFileId
+	request.Name = name
+
+	var resp models.File
+
+	err := d.send(credential, request, &resp)
+
+	d.EvictCacheWithPrefix(parentFileId)
+
+	return &resp, err
+}
+
+type ProgressInfo struct {
+	FileId       string
+	UploadId     string
+	PartInfoList []*models.PartInfo
 }
 
 type ProgressCallback func(readCount int64) bool
 
 type progressReader struct {
-	*bytes.Reader
+	io.Reader
 	Callback ProgressCallback
 }
 
 func (p *progressReader) Read(buf []byte) (n int, err error) {
 	n, err = p.Reader.Read(buf)
 
-	if !p.Callback(int64(n)) {
+	if p.Callback != nil && !p.Callback(int64(n)) {
 		return 0, errors.New("user stop")
 	}
 

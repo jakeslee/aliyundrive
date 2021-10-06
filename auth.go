@@ -6,6 +6,8 @@ import (
 	"github.com/jakeslee/aliyundrive/models"
 	"github.com/jinzhu/copier"
 	"github.com/sirupsen/logrus"
+	"math/rand"
+	"strconv"
 )
 
 type Credential struct {
@@ -24,7 +26,7 @@ const (
 
 func NewCredential(credential *Credential) *Credential {
 	c := &Credential{
-		RootFolder: "root",
+		RootFolder: DefaultRootFileId,
 		eventbus:   EventBus.New(),
 	}
 
@@ -75,10 +77,9 @@ func (d *AliyunDrive) RefreshToken(credential *Credential) (*models.RefreshToken
 
 // AddCredential 增加新的 Credential，同时刷新 RefreshToken
 func (d *AliyunDrive) AddCredential(credential *Credential) (*Credential, error) {
-	credential.UserId = d.snowflake.Generate().String()
+	credential.UserId = strconv.Itoa(rand.Intn(100000))
 
 	d.Credentials[credential.UserId] = credential
-
 	_, err := d.RefreshToken(credential)
 
 	return credential, err

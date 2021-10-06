@@ -15,7 +15,7 @@ type FolderFilesRequest struct {
 	Fields                string `json:"fields"`                  // 字段
 	ImageThumbnailProcess string `json:"image_thumbnail_process"` // 图片缩略图处理器
 	ImageUrlProcess       string `json:"image_url_process"`       // 图片处理器
-	UrlExpireSec          string `json:"url_expire_sec"`          // Url 超时时间（秒）
+	UrlExpireSec          int    `json:"url_expire_sec"`          // Url 超时时间（秒）
 	Limit                 int    `json:"limit"`                   // 单次拉取数量
 	Marker                string `json:"marker"`                  // 分页拉新标记
 	OrderBy               string `json:"order_by"`                // 排序字段
@@ -45,6 +45,9 @@ func NewFolderFilesRequest() *FolderFilesRequest {
 	r := &FolderFilesRequest{
 		Fields:                "*",
 		Limit:                 100,
+		UrlExpireSec:          1600,
+		OrderBy:               "updated_at",
+		OrderDirection:        OrderDirectionTypeDescend,
 		ImageThumbnailProcess: ImageThumbnailProcessDefault,
 		ImageUrlProcess:       ImageUrlProcessDefault,
 		VideoThumbnailProcess: VideoThumbnailProcessDefault,
@@ -66,7 +69,7 @@ type FileRequest struct {
 
 type FileResponse struct {
 	http.BaseResponse
-	File
+	*File
 }
 
 func NewFileRequest() *FileRequest {
@@ -76,6 +79,21 @@ func NewFileRequest() *FileRequest {
 	}
 
 	r.Init(AliyunDriveEndpoint).SetHttpMethod(http.Post).SetUrl("/v2/file/get")
+
+	return r
+}
+
+type GetFileByPathRequest struct {
+	http.BaseRequest
+
+	DriveId  string `json:"drive_id"`
+	FilePath string `json:"file_path"`
+}
+
+func NewGetFileByPathRequest() *GetFileByPathRequest {
+	r := &GetFileByPathRequest{}
+
+	r.Init(AliyunDriveEndpoint).SetHttpMethod(http.Post).SetUrl("/v2/file/get_by_path")
 
 	return r
 }
@@ -190,6 +208,11 @@ func NewPartInfoList(size, partSize int64) ([]*PartInfo, error) {
 	}
 
 	var result []*PartInfo
+
+	if size == 0 {
+		return result, nil
+	}
+
 	var count int64
 
 	for (count + partSize) < size {
@@ -484,9 +507,9 @@ type CreateWithFolders struct {
 }
 
 type Files struct {
-	Items      []File `json:"items"`       // 文件列表
-	NextMarker string `json:"next_marker"` // 分页标记
-	Paths      []Path `json:"paths"`
+	Items      []*File `json:"items"`       // 文件列表
+	NextMarker string  `json:"next_marker"` // 分页标记
+	Paths      []*Path `json:"paths"`
 }
 
 type FileType string
@@ -499,19 +522,19 @@ const (
 // File 文件对象
 type File struct {
 	http.BaseResponse
-	DriveId      string     `json:"drive_id"`
-	Name         string     `json:"name"`
-	Type         FileType   `json:"type"`
-	DomainId     string     `json:"domain_id"`
-	EncryptMode  string     `json:"encrypt_mode"`
-	FileId       string     `json:"file_id"`
-	Hidden       bool       `json:"hidden"`
-	ParentFileId string     `json:"parent_file_id"`
-	Starred      bool       `json:"starred"`
-	Status       string     `json:"status"`
-	CreatedAt    *time.Time `json:"created_at"`
-	UpdatedAt    *time.Time `json:"updated_at"`
-	Paths        []Path     `json:"paths"`
+	DriveId      string    `json:"drive_id"`
+	Name         string    `json:"name"`
+	Type         FileType  `json:"type"`
+	DomainId     string    `json:"domain_id"`
+	EncryptMode  string    `json:"encrypt_mode"`
+	FileId       string    `json:"file_id"`
+	Hidden       bool      `json:"hidden"`
+	ParentFileId string    `json:"parent_file_id"`
+	Starred      bool      `json:"starred"`
+	Status       string    `json:"status"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Paths        []Path    `json:"paths"`
 
 	FileItem
 }

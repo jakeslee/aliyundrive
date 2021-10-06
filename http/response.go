@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/go-resty/resty/v2"
+	"net/http"
 )
 
 type Response interface {
@@ -24,6 +25,10 @@ func (b *BaseResponse) ParseErrorFromHTTPResponse(body []byte) error {
 }
 
 func parseFromHTTPResponse(response *resty.Response, out Response) error {
+	if response.StatusCode() == http.StatusNoContent {
+		return nil
+	}
+
 	body := response.Body()
 
 	err := json.Unmarshal(body, &out)
