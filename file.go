@@ -427,16 +427,23 @@ func (d *AliyunDrive) PartUpload(credential *Credential, uploadUrl string, reade
 type UploadFileRapidOptions struct {
 	UploadFileOptions
 
-	File *os.File
+	File        *os.File
+	ContentHash string
 }
 
 // UploadFileRapid 上传文件（秒传）
 // 当文件较大（如1GB以上）时，计算整个文件的 sha1 将花费较大的资源。先执行预秒传匹配到可能的数据才执行秒传。
-func (d *AliyunDrive) UploadFileRapid(credential *Credential, options *UploadFileRapidOptions) (*models.File, error) {
+func (d *AliyunDrive) UploadFileRapid(credential *Credential, options *UploadFileRapidOptions) (file *models.File, rapid bool, err error) {
+	// 重置文件读取位置
+	_, err = options.File.Seek(0, 0)
+	if err != nil {
+		return nil, false, err
+	}
+
 	// 执行预秒传
 	preHash, err := d.ComputePreHash(options.File)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	response, err := d.CreateWithFolders(credential, &CreateWithFoldersOptions{
@@ -450,36 +457,42 @@ func (d *AliyunDrive) UploadFileRapid(credential *Credential, options *UploadFil
 
 	if err, ok := err.(*http.AliyunDriveError); ok {
 		if err.Code != models.CodePreHashMatched {
-			return nil, err
+			return nil, false, err
 		} else {
 			preHashMatch = true
 		}
 	} else if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// 返回 rapid_upload=false，则表明预秒传没有匹配到对应的数据，直接上传数据
 	if !preHashMatch {
 		if preHashResp, ok := response.(*models.CreateWithFoldersPreHashResponse); ok && !preHashResp.RapidUpload {
-			return d.uploadParts(credential, &uploadPartsOptions{
+			file, err = d.uploadParts(credential, &uploadPartsOptions{
 				fileId:           preHashResp.FileId,
 				uploadId:         preHashResp.UploadId,
 				partInfoList:     preHashResp.PartInfoList,
 				reader:           options.File,
 				progressCallback: options.ProgressCallback,
 			})
+
+			return file, false, err
 		}
 	}
 
 	// 表明预秒传匹配到可能的数据，再次调用秒传流程
 	proofCodeV1, err := d.ComputeProofCodeV1(credential, options.File, options.Size)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	contentSha1, err := ChecksumFileSha1(options.File)
-	if err != nil {
-		return nil, err
+	// 如果已经提供内容 HASH，不用重复计算
+	contentSha1 := options.ContentHash
+	if options.ContentHash == "" {
+		contentSha1, err = ChecksumFileSha1(options.File)
+		if err != nil {
+			return nil, false, err
+		}
 	}
 
 	response, err = d.CreateWithFolders(credential, &CreateWithFoldersOptions{
@@ -490,7 +503,7 @@ func (d *AliyunDrive) UploadFileRapid(credential *Credential, options *UploadFil
 		ContentHash:  strings.ToUpper(contentSha1),
 	})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	proofResp := response.(*models.CreateWithFoldersWithProofResponse)
@@ -498,20 +511,22 @@ func (d *AliyunDrive) UploadFileRapid(credential *Credential, options *UploadFil
 	if proofResp.RapidUpload {
 		file, err := d.GetFile(credential, proofResp.FileId)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 
-		return file.File, nil
+		return file.File, true, nil
 	}
 
 	// 最后如果秒传还是失败，说明预秒传 HASH 碰撞了，直接上传
-	return d.uploadParts(credential, &uploadPartsOptions{
+	file, err = d.uploadParts(credential, &uploadPartsOptions{
 		fileId:           proofResp.FileId,
 		uploadId:         proofResp.UploadId,
 		partInfoList:     proofResp.PartInfoList,
 		reader:           options.File,
 		progressCallback: options.ProgressCallback,
 	})
+
+	return file, false, err
 }
 
 type UploadFileOptions struct {

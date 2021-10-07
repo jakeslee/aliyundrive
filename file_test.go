@@ -75,8 +75,8 @@ func TestAliyunDrive_UploadFileRapid(t *testing.T) {
 		t.Fatalf("cred %v", err)
 	}
 
-	rapid, err := drive.UploadFileRapid(cred, &UploadFileRapidOptions{
-		UploadFileOptions{
+	rapid, _, err := drive.UploadFileRapid(cred, &UploadFileRapidOptions{
+		UploadFileOptions: UploadFileOptions{
 			Name:         name,
 			Size:         stat.Size(),
 			ParentFileId: DefaultRootFileId,
@@ -86,7 +86,7 @@ func TestAliyunDrive_UploadFileRapid(t *testing.T) {
 				return true
 			},
 		},
-		f,
+		File: f,
 	})
 
 	if err != nil {
