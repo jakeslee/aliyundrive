@@ -7,6 +7,7 @@ import (
 	"github.com/jakeslee/aliyundrive/models"
 	"github.com/sirupsen/logrus"
 	gohttp "net/http"
+	"reflect"
 	"time"
 )
 
@@ -73,14 +74,18 @@ func (d *AliyunDrive) send(credential *Credential, r http.Request, response http
 		return err
 	}
 
-	if value, ok := response.(*http.BaseResponse); ok {
-		if value.Code == models.CodeAccessTokenInvalid {
-			_, err := d.RefreshToken(credential)
-			if err != nil {
-				return err
-			}
+	baseValue := reflect.ValueOf(response).Elem().FieldByName("BaseResponse")
 
-			return d.client.Send(r, response)
+	if baseValue.IsValid() {
+		if value, ok := baseValue.Addr().Interface().(*http.BaseResponse); ok {
+			if value.Code == models.CodeAccessTokenInvalid {
+				_, err := d.RefreshToken(credential)
+				if err != nil {
+					return err
+				}
+
+				return d.client.Send(r, response)
+			}
 		}
 	}
 
