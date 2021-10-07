@@ -453,6 +453,13 @@ func (d *AliyunDrive) UploadFileRapid(credential *Credential, options *UploadFil
 		PreHash:      preHash,
 	})
 
+	doneFn := func(info *ProgressInfo) {
+		d.EvictCacheWithPrefix(options.ParentFileId)
+		if options.ProgressDone != nil {
+			options.ProgressDone(info)
+		}
+	}
+
 	var preHashMatch bool
 
 	if err, ok := err.(*http.AliyunDriveError); ok {
@@ -474,6 +481,7 @@ func (d *AliyunDrive) UploadFileRapid(credential *Credential, options *UploadFil
 				partInfoList:     preHashResp.PartInfoList,
 				reader:           options.File,
 				progressCallback: options.ProgressCallback,
+				progressDone:     doneFn,
 			})
 
 			return file, false, err
@@ -514,6 +522,12 @@ func (d *AliyunDrive) UploadFileRapid(credential *Credential, options *UploadFil
 			return nil, false, err
 		}
 
+		doneFn(&ProgressInfo{
+			FileId:       file.FileId,
+			UploadId:     proofResp.UploadId,
+			PartInfoList: proofResp.PartInfoList,
+		})
+
 		return file.File, true, nil
 	}
 
@@ -524,6 +538,7 @@ func (d *AliyunDrive) UploadFileRapid(credential *Credential, options *UploadFil
 		partInfoList:     proofResp.PartInfoList,
 		reader:           options.File,
 		progressCallback: options.ProgressCallback,
+		progressDone:     doneFn,
 	})
 
 	return file, false, err
