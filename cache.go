@@ -1,16 +1,16 @@
 package aliyundrive
 
 import (
-	"errors"
+	"bytes"
+	"encoding/gob"
 	"github.com/allegro/bigcache/v3"
+	"github.com/sirupsen/logrus"
 	"strings"
-	"sync"
 	"time"
 )
 
 type bigCache struct {
-	cache    *bigcache.BigCache
-	cacheMap *sync.Map
+	cache *bigcache.BigCache
 }
 
 type bigCacheOptions struct {
@@ -19,10 +19,9 @@ type bigCacheOptions struct {
 	cleanFreq time.Duration
 }
 
-var ErrEntryNotFound = errors.New("entry not found")
-
 func newBigCache(options *bigCacheOptions) (*bigCache, error) {
-	m := &sync.Map{}
+	gob.Register([]interface{}{})
+	gob.Register(map[string]interface{}{})
 
 	cache, err := bigcache.NewBigCache(bigcache.Config{
 		Shards:             16,
@@ -33,9 +32,6 @@ func newBigCache(options *bigCacheOptions) (*bigCache, error) {
 		Verbose:            false,
 		HardMaxCacheSize:   options.size,
 		StatsEnabled:       true,
-		OnRemove: func(key string, entry []byte) {
-			m.Delete(key)
-		},
 	})
 
 	if err != nil {
@@ -43,22 +39,35 @@ func newBigCache(options *bigCacheOptions) (*bigCache, error) {
 	}
 
 	return &bigCache{
-		cache:    cache,
-		cacheMap: m,
+		cache: cache,
 	}, nil
 }
 
 func (b *bigCache) Get(key string) (interface{}, error) {
-	if value, ok := b.cacheMap.Load(key); ok {
-		return value, nil
+	value, err := b.cache.Get(key)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil, ErrEntryNotFound
+	v, err := deserialize(value)
+	if err != nil {
+		return nil, err
+	}
+
+	return v, nil
 }
 
 func (b *bigCache) Set(key string, value interface{}) error {
-	b.cacheMap.Store(key, value)
-	_ = b.cache.Set(key, []byte("empty"))
+	valueBytes, err := serialize(value)
+	if err != nil {
+		logrus.Errorf("serialize error %s", err)
+		return err
+	}
+
+	err = b.cache.Set(key, valueBytes)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -80,4 +89,30 @@ func (b *bigCache) RemoveWithPrefix(prefix string) int {
 	}
 
 	return count
+}
+
+func serialize(value interface{}) ([]byte, error) {
+	buffer := bytes.Buffer{}
+	enc := gob.NewEncoder(&buffer)
+	gob.Register(value)
+
+	err := enc.Encode(&value)
+	if err != nil {
+		return nil, err
+	}
+
+	return buffer.Bytes(), nil
+}
+
+func deserialize(valueBytes []byte) (interface{}, error) {
+	var value interface{}
+	buf := bytes.NewBuffer(valueBytes)
+	dec := gob.NewDecoder(buf)
+
+	err := dec.Decode(&value)
+	if err != nil {
+		return nil, err
+	}
+
+	return value, nil
 }
