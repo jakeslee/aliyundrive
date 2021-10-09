@@ -49,7 +49,7 @@ func NewClient(options *Options) *AliyunDrive {
 
 	drive.cache, _ = newBigCache(&bigCacheOptions{
 		ttl:       5 * time.Minute,
-		size:      2000,
+		size:      0,
 		cleanFreq: time.Minute,
 	})
 

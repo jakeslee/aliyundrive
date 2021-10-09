@@ -24,14 +24,14 @@ func newBigCache(options *bigCacheOptions) (*bigCache, error) {
 	gob.Register(map[string]interface{}{})
 
 	cache, err := bigcache.NewBigCache(bigcache.Config{
-		Shards:             16,
+		Shards:             1024,
 		LifeWindow:         options.ttl,
 		CleanWindow:        options.cleanFreq,
-		MaxEntriesInWindow: 1000 * 10 * 60,
+		MaxEntriesInWindow: 100,
 		MaxEntrySize:       500,
 		Verbose:            false,
 		HardMaxCacheSize:   options.size,
-		StatsEnabled:       true,
+		StatsEnabled:       false,
 	})
 
 	if err != nil {
