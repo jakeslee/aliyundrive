@@ -446,6 +446,11 @@ func (d *AliyunDrive) UploadFileRapid(credential *Credential, options *UploadFil
 		return nil, false, err
 	}
 
+	// 对于空文件，回退到普通上传
+	if options.Size <= 0 {
+		preHash = ""
+	}
+
 	response, err := d.CreateWithFolders(credential, &CreateWithFoldersOptions{
 		ParentFileId: options.ParentFileId,
 		Name:         options.Name,

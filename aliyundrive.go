@@ -5,6 +5,7 @@ import (
 	nested "github.com/antonfisher/nested-logrus-formatter"
 	"github.com/jakeslee/aliyundrive/http"
 	"github.com/jakeslee/aliyundrive/models"
+	"github.com/robfig/cron/v3"
 	"github.com/sirupsen/logrus"
 	gohttp "net/http"
 	"reflect"
@@ -24,20 +25,23 @@ func init() {
 type AliyunDrive struct {
 	Credentials map[string]*Credential
 
+	c         *cron.Cron
 	client    *http.Client
 	rawClient *gohttp.Client
 	cache     *bigCache
 }
 
 type Options struct {
-	AutoRefresh bool
-	Credential  []*Credential
+	AutoRefresh     bool
+	RefreshDuration string // 刷新周期，默认 @every 1h30m，支持 cron
+	Credential      []*Credential
 }
 
 func NewClient(options *Options) *AliyunDrive {
 	drive := &AliyunDrive{
 		Credentials: make(map[string]*Credential),
 		client:      http.NewClient(),
+		c:           cron.New(),
 		rawClient: &gohttp.Client{
 			Transport: &gohttp.Transport{
 				TLSClientConfig: &tls.Config{
@@ -57,6 +61,24 @@ func NewClient(options *Options) *AliyunDrive {
 		for _, credential := range options.Credential {
 			_, _ = drive.AddCredential(credential)
 		}
+	}
+
+	if options.AutoRefresh {
+		spec := "@every 1h30m"
+
+		if options.RefreshDuration != "" {
+			spec = options.RefreshDuration
+		}
+
+		_, err := drive.c.AddFunc(spec, func() {
+			drive.RefreshAllToken()
+		})
+
+		if err != nil {
+			logrus.Warnf("create auto refresh token job error: %s", err)
+		}
+
+		logrus.Infof("job: refresh token, schedule as %s", spec)
 	}
 
 	return drive

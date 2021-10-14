@@ -43,6 +43,15 @@ func (c *Credential) RegisterChangeEvent(fn func(credential *Credential)) *Crede
 	return c
 }
 
+func (d *AliyunDrive) RefreshAllToken() {
+	for name, credential := range d.Credentials {
+		_, err := d.RefreshToken(credential)
+		if err != nil {
+			logrus.Errorf("error occurred refreshing token %s, error: %s", name, err)
+		}
+	}
+}
+
 // RefreshToken 刷新 RefreshToken，更新 AccessToken 和 Credential 里的相关信息
 func (d *AliyunDrive) RefreshToken(credential *Credential) (*models.RefreshTokenResponse, error) {
 	refreshTokenRequest := models.NewRefreshTokenRequest()

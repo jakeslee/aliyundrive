@@ -8,6 +8,7 @@ require (
 	github.com/asaskevich/EventBus v0.0.0-20200907212545-49d423059eef
 	github.com/go-resty/resty/v2 v2.6.0
 	github.com/jinzhu/copier v0.3.2
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/sirupsen/logrus v1.8.1
 )
 
