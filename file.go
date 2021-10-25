@@ -1,12 +1,14 @@
 package aliyundrive
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"github.com/jakeslee/aliyundrive/http"
 	"github.com/jakeslee/aliyundrive/models"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 	"io"
 	"math/big"
 	http2 "net/http"
@@ -397,9 +399,18 @@ func (d *AliyunDrive) CompleteUpload(credential *Credential, fileId, uploadId st
 // PartUpload 分片数据上传
 // 因服务端使用流式计算 SHA1 值，单个文件的分片需要串行上传，不支持多个分片平行上传
 func (d *AliyunDrive) PartUpload(credential *Credential, uploadUrl string, reader io.Reader, callback ProgressCallback) error {
-	p := &progressReader{
+	var p io.Reader
+
+	p = &progressReader{
 		reader,
 		callback,
+	}
+
+	if d.uploadLimitEnable {
+		p = &RateLimiterReader{
+			limiter: d.uploadRateLimiter,
+			Reader:  p,
+		}
 	}
 
 	request, err := http2.NewRequest("PUT", uploadUrl, p)
@@ -747,6 +758,21 @@ type ProgressInfo struct {
 	FileId       string
 	UploadId     string
 	PartInfoList []*models.PartInfo
+}
+
+type RateLimiterReader struct {
+	io.Reader
+	limiter *rate.Limiter
+}
+
+func (p *RateLimiterReader) Read(buf []byte) (n int, err error) {
+	err = p.limiter.WaitN(context.TODO(), len(buf))
+	if err != nil {
+		return 0, err
+	}
+
+	n, err = p.Reader.Read(buf)
+	return n, err
 }
 
 type ProgressCallback func(readCount int64) bool

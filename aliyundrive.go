@@ -2,11 +2,13 @@ package aliyundrive
 
 import (
 	"crypto/tls"
+	"fmt"
 	nested "github.com/antonfisher/nested-logrus-formatter"
 	"github.com/jakeslee/aliyundrive/http"
 	"github.com/jakeslee/aliyundrive/models"
 	"github.com/robfig/cron/v3"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 	gohttp "net/http"
 	"reflect"
 	"time"
@@ -25,23 +27,27 @@ func init() {
 type AliyunDrive struct {
 	Credentials map[string]*Credential
 
-	c         *cron.Cron
-	client    *http.Client
-	rawClient *gohttp.Client
-	cache     *bigCache
+	c                 *cron.Cron
+	client            *http.Client
+	rawClient         *gohttp.Client
+	cache             *bigCache
+	uploadRateLimiter *rate.Limiter
+	uploadLimitEnable bool
 }
 
 type Options struct {
 	AutoRefresh     bool
+	UploadRate      int
 	RefreshDuration string // 刷新周期，默认 @every 1h30m，支持 cron
 	Credential      []*Credential
 }
 
 func NewClient(options *Options) *AliyunDrive {
 	drive := &AliyunDrive{
-		Credentials: make(map[string]*Credential),
-		client:      http.NewClient(),
-		c:           cron.New(),
+		Credentials:       make(map[string]*Credential),
+		client:            http.NewClient(),
+		c:                 cron.New(),
+		uploadRateLimiter: rate.NewLimiter(rate.Limit(options.UploadRate), options.UploadRate),
 		rawClient: &gohttp.Client{
 			Transport: &gohttp.Transport{
 				TLSClientConfig: &tls.Config{
@@ -80,6 +86,14 @@ func NewClient(options *Options) *AliyunDrive {
 
 		logrus.Infof("job: refresh token, schedule as %s", spec)
 	}
+
+	printStr := ""
+	if options.UploadRate != 0 {
+		drive.uploadLimitEnable = true
+		printStr = fmt.Sprintf(", speed limit: %d bytes/s", options.UploadRate)
+	}
+
+	logrus.Infof("rate limit mode: %v"+printStr, drive.uploadLimitEnable)
 
 	return drive
 }
