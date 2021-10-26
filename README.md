@@ -1,4 +1,6 @@
 # aliyundrive
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fjakeslee%2Faliyundrive.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fjakeslee%2Faliyundrive?ref=badge_shield)
+
 
 本项目是基于阿里云盘网页接口封装的 SDK 工具包，可以用于扩展开发其它功能，包含以下特性：
 
@@ -17,3 +19,7 @@
 - [zxbu/webdav-aliyundriver](https://github.com/zxbu/webdav-aliyundriver)
 - https://www.aliyundrive.com
 - [阿里网盘开发者文档](https://help.aliyun.com/document_detail/213019.html)
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fjakeslee%2Faliyundrive.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fjakeslee%2Faliyundrive?ref=badge_large)
