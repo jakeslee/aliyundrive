@@ -9,6 +9,52 @@
 - 秒传（基于 proof code v1 秒传）
 - 文件移动、重命名、删除等操作
 - 文件批量操作（移动）
+- 文件上传限速
+
+## 使用
+
+```shell
+go get github.com/jakeslee/aliyundrive
+```
+安装后使用以下方式使用：
+
+```go
+package main
+
+import (
+	"github.com/jakeslee/aliyundrive"
+	"log"
+	"os"
+)
+
+func main() {
+	drive := aliyundrive.NewClient(&aliyundrive.Options{
+		AutoRefresh: true,
+		UploadRate:  2 * 1024 * 1024, // 限速 2MBps
+	})
+
+	cred, err := drive.AddCredential(aliyundrive.NewCredential(&aliyundrive.Credential{
+		RefreshToken: "aliyundrive refresh token",
+	}))
+
+	file, err := os.OpenFile("/tmp/demo", os.O_RDONLY, 0)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fileRapid, rapid, err := drive.UploadFileRapid(cred, &aliyundrive.UploadFileRapidOptions{
+		UploadFileOptions: aliyundrive.UploadFileOptions{
+			Name:         "name",
+			Size:         1000,
+			ParentFileId: aliyundrive.DefaultRootFileId,
+		},
+		File: file,
+	})
+
+	log.Printf("file: %v, rapid: %v", fileRapid, rapid)
+	// ...
+}
+```
 
 ## 感谢
 

@@ -80,6 +80,8 @@ func NewClient(options *Options) *AliyunDrive {
 			drive.RefreshAllToken()
 		})
 
+		drive.c.Start()
+
 		if err != nil {
 			logrus.Warnf("create auto refresh token job error: %s", err)
 		}
